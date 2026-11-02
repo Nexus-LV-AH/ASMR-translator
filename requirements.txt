@@ -1,0 +1,8 @@
+# 运行时依赖（start.sh 会自动安装；手动安装：uv pip install -r requirements.txt）
+torch>=2.2
+transformers>=4.40
+faster-whisper>=1.0
+huggingface_hub>=0.23
+numpy>=1.26
+PyYAML>=6.0
+av>=12.0

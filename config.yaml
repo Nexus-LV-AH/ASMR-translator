@@ -1,0 +1,218 @@
+# ============================================================
+# 音声字幕工房 · 配置文件
+# ============================================================
+#
+# ★ 首次使用：只改下面紧跟着的 translation.registry 三处（其余保持默认）
+#     · sakura-14b-qwen3-v1.5.path        → 你的 Q6_K gguf
+#     · sakura-14b-qwen3-v1.5-iq4xs.path  → 你的 IQ4_XS gguf
+#     · deepseek-api.api_key              → 云端 API key（不用云端就留空）
+#
+#   路径支持 ~ 或相对本文件的路径；key 也可以放 .env 的 DEEPSEEK_API_KEY。
+#   个人覆盖写在同目录 config.local.yaml（递归合并、不入库）。
+
+# ============================================================
+# ★ 翻译模型 / API key（首次使用只改这一块）
+# ============================================================
+translation:
+  default: sakura-14b-qwen3-v1.5
+  registry:
+    sakura-14b-qwen3-v1.5:
+      by_tag: Sakura 14B Q6_K
+      # 本地已有模型，直接使用（无需下载）
+      path: ""          # ★ 填你的 Q6_K gguf 路径（如 ~/models/sakura-14b-qwen3-v1.5-q6k.gguf）
+      note: Sakura 14B Q6_K（11.29GB）｜质量最好，长任务内存吃紧
+      vram_gb: 11.3
+    sakura-14b-qwen3-v1.5-iq4xs:
+      by_tag: Sakura 14B IQ4_XS
+      path: ""          # ★ 填你的 IQ4_XS gguf 路径（如 ~/models/sakura-14b-qwen3-v1.5-iq4xs.gguf）
+      note: Sakura 14B IQ4_XS 4bit（7.62GB）｜省约 3.7GB 内存，长任务/边用电脑边跑时选它
+      vram_gb: 7.6
+    # 下面两条是「需要从网上下载」的备选模型：本地没有文件，默认不参与选择。
+    # 想用就取消注释（会自动下载到 .models/），或用 --mt-model 临时指定。
+    # sakura-galtransl-14b:
+    #   hf_id: SakuraLLM/Sakura-GalTransl-14B-v3.8
+    #   gguf: Sakura-Galtransl-14B-v3.8-Q4_K_M.gguf   # 8.37GB；Q5_K_S 9.56GB / IQ4_XS 7.62GB 可选
+    #   local_dir: .models/Sakura-GalTransl-14B-v3.8
+    #   note: 日中翻译特化（视觉小说/Galgame），许可 cc-by-nc-sa-4.0（个人使用自由，禁商用）
+    # sakura-galtransl-7b:
+    #   hf_id: SakuraLLM/Sakura-GalTransl-7B-v3.7
+    #   gguf: Sakura-Galtransl-7B-v3.7.gguf           # Q6_K 5.82GB
+    #   local_dir: .models/Sakura-GalTransl-7B-v3.7
+    #   note: 更轻更快的同系列版本
+    deepseek-api:
+      by_tag: DeepSeek v4.1 Flash
+      api: deepseek                                 # 标记为走远程 API：不加载本地模型、不占本机内存
+      base_url: https://api.deepseek.com/v1
+      model: deepseek-flash                          # 服务端支持：deepseek-flash / deepseek-v4-pro（也可用 .env 的 DEEPSEEK_MODEL 覆盖）
+      title_thinking: false                          # 标题翻译也不开思考（API 思考会吃配额、更慢更贵）
+
+      # DeepSeek V4 思考模式**默认开启**且 effort=high，思维链会吃掉 max_tokens 导致正文为空；
+      # 翻译这种逐行任务不需要思考 → 默认关闭（标题翻译会临时开启）。
+      thinking_param: {name: thinking, "on": {type: enabled}, "off": {type: disabled}}
+      # reasoning_effort: low        # 若确实要用思考模式，可调低强度（minimal/low/high/max）
+      api_key: ""                                   # ★ 在这里填你的 key（sk-...）；留空则读 .env 的 DEEPSEEK_API_KEY
+      api_key_env: DEEPSEEK_API_KEY                 # 用 .env 时读这个变量名
+      note: DeepSeek API（需在 .env 填 DEEPSEEK_API_KEY）｜不占本机内存，按量计费
+      # 若该模型的思考需要显式关闭，按官方参数名填，例如：
+      # thinking_param: {name: thinking, "on": {type: enabled}, "off": {type: disabled}}
+      # extra_body: {}                             # 追加到请求体的其它字段
+
+  server:
+    backend: auto           # auto | llamacpp | lmstudio
+    llamacpp_url: http://127.0.0.1:8080
+    lmstudio_url: http://127.0.0.1:1234
+    auto_start: true        # 没检测到服务时自动用 llama-server 拉起模型
+    llama_server_bin: llama-server
+    ctx_size: 8192         # KV 缓存 = 40层×2×8KV头×128维×2B = 160KiB/token → 8192 约 1.25GB
+    n_gpu_layers: 99
+    # 额外传给 llama-server 的参数（省内存推荐，按需打开任一项）：
+    #   改 ctx_size: 4096                          上下文减半 → KV 1.25GB→0.62GB（本工具每批最多 12 行，4096 足够）
+    #   ["-ctk","q8_0","-ctv","q8_0"]              KV 量化 → 再省一半（0.62GB→0.31GB），质量影响很小
+    #   ["-b","256","-ub","128"]                   计算缓冲更小，占用峰值更低（速度略降）
+    #   ["-np","1","--ctx-checkpoints","0"]        单 slot、不存上下文检查点，进一步减少常驻
+    # 注意：不要加 --mlock（会把模型锁在内存里，反而更容易爆）
+    extra_args: []
+  prompt:                   # 提示词（都在 prompts/ 下，可自由修改；改名在这里填）
+    dir: prompts
+    system: system.txt              # 翻译人设/总体要求
+    rules: subtitle_rules.txt       # 逐行格式约定（[编号. 译文]）——改坏会直接导致解析失败，慎改
+    repair: repair.txt              # 单行补译
+    title: title.txt                # 标题翻译
+    style_file: style_asmr.txt      # 追加到 system 末尾的风格规范；留空 = 不启用
+  sampling:                 # Sakura 官方推荐参数
+    temperature: 0.3
+    top_p: 0.8
+    max_tokens: 2048
+  translate:
+    batch_lines: 12         # 每次请求翻译多少行
+    history_lines: 2        # 作为 [History] 的上一批译文行数（保证人称/语气连续）
+    glossary_file: glossary.txt   # 术语表（src->dst #备注），不存在则留空
+    retries: 2
+    request_timeout_s: 600
+    # ---- 防止「行数不符」引发重跑 ----
+    max_tokens_per_line: 30  # 单批输出上限 = 行数 × 该值（正常约 10 token/行，留 3 倍余量）
+    adaptive_batch: true     # 某批出现不匹配就把后续批量减半（下限 6），连续 3 批干净后回升
+    repair_untranslated: true   # 结尾扫描：空/与原文相同/仍是日文的行，逐行补译
+    repair_max_attempts: 2
+    # ---- 补漏片段复检（防止人称/指代错乱）----
+    verify_recovered: true   # 对走过补漏/单行补译的窗口，带上下文重译一遍并记录改动行
+    verify_context_lines: 2  # 复检时携带的上文行数
+    verify_max_windows: 20   # 一次最多复检多少个窗口
+  title:
+    translate: true         # 文件名里的日文作品标题 → 中文，写入 LRC [ti:]
+    max_chars: 40
+  output:
+    write_zh_txt: true      # [HH:MM:SS] 中文
+    write_lrc: true         # [mm:ss.xx] 中文
+    lrc_bilingual: false    # true：同一时间戳先中文后日文
+    lrc_offset_ms: 0
+    lrc_title_line: true    # 把标题作为第一行字幕写进 LRC（播放器里能看见）
+    lrc_title_at_ms: 0      # 标题行时间戳；首条字幕从 0 秒开始时会盖住标题，可关掉上一项
+
+
+# ============================================================
+# 其余配置（一般不用改）
+# ============================================================
+
+# ============================================================
+# 模型都在哪（重要）
+#   .models/anime-whisper/         语音识别(ASR)模型，extract 阶段用；
+#                                  因 HF 直连超时，由 scripts/fetch_model.py 从 hf-mirror 下到项目内
+#   <你的模型目录>/               本项目**只读引用、不复制**（路径填在下方 registry 里）：
+#       sakura-14b-qwen3-v1.5-q6k.gguf    → 翻译 / 台本精修判定（见上方 translation.registry.path）
+#       qwen3.5 9b8bit/                   → 仅对照试验（scripts/probe_model.py + scripts/serve_mlx.sh）
+#       gemma/                            → 旧多模态方案遗留，本项目不再使用
+# ============================================================
+
+paths:
+  input_dir: input              # 音频目录（支持按作品建子文件夹；也可命令行直接传文件/目录）
+  subtitles_dir: subtitles_ja   # 日文中间产物：<名>.ja.txt / .timing.json / .meta.json
+  promptbook_dir: promptbook    # 台本工作区（<作品>/<轨道>.txt）
+  output_dir: output            # 中文文本 + 任务归档（见下方 bundle）
+  lrc_dir: lrc_work             # LRC 中转/工作目录（归档时会被清空；成品在作品包里）
+  collect_dir: LRC成品库        # 只进不出：每轮结束后把该作品的中文 LRC 复制到这里（按 RJ 号分文件夹）
+
+# ---------------- 任务归档（翻译模式生效；提取模式不动文件）----------------
+# **整轮任务结束**后一次性把工作区收进作品包（不做"翻一轨搬一轨"，避免半套状态）；
+# 该作品还有轨道没有中文字幕时本轮不归档，文件留在工作区，补完再跑：
+#   output/<作品>/字幕文件/日文/   日文字幕（.ja.txt / .timing.json / .meta.json / 精修版）
+#   output/<作品>/字幕文件/中文/   中文字幕（.zh.txt / 缓存 / 元数据）+ LRC
+#   output/<作品>/音频/           原始音频（wav 仍是 wav、mp3 仍是 mp3）+ 封面图
+#   output/<作品>/台本/           台本（没有台本就不建这个文件夹）
+# 只移动、不删除；同名产物覆盖。关掉：translate 加 --no-consolidate
+# 手动归档（或预览）：python scripts/bundle.py --dry-run
+bundle:
+  consolidate: true             # 整轮结束后自动归档
+  collect_lrc: true             # 任务结束后把中文 LRC 复制到 <collect_dir>/<input 文件夹名>/（只写入不取出）
+  move_audio: true              # 源音频（含封面图）原样移入 <作品>/音频/
+  move_promptbook: true         # 台本移入 <作品>/台本/
+  prune_empty_dirs: true        # 空目录自动清掉（非空不动）
+  remove_junk: true             # 清理 .DS_Store/Thumbs.db 等系统垃圾，否则作品文件夹永远删不掉
+  dirs:                         # 作品包内的目录名（想改名就改这里）
+    subs: 字幕文件              # 总字幕目录：里面再分 日文 / 中文
+    ja: 日文                    # 字幕文件/日文
+    zh: 中文                    # 字幕文件/中文（LRC 也放这里）
+    audio: 音频                 # 原始音频原样放这里（wav 就是 wav、mp3 就是 mp3）+ 封面图
+    promptbook: 台本            # 台本（有才建）
+
+model:
+  # 默认 anime-whisper：
+  #   - MIT 许可，756M（kotoba-whisper-v2.0 / whisper-large-v3 蒸馏架构）
+  #   - 官方明确支持 NSFW 音频转写，且会忠实转写吐息/笑声/喘息等非言语发声（本项目要求保留）
+  #   - 官方警告：**不要设置 initial prompt**，会导致幻觉与质量劣化 —— 本工具因此不提供任何 prompt 选项
+  default: anime-whisper
+  registry:
+    anime-whisper:
+      hf_id: litagin/anime-whisper        # 动画/游戏演技台词特化（5300h Galgame 语音微调）
+      local_dir: .models/anime-whisper    # 用 scripts/fetch_model.py 直连下载到这里
+    kotoba-whisper-v2.2:
+      hf_id: kotoba-tech/kotoba-whisper-v2.2   # 日语通用蒸馏模型（备选）
+      local_dir: .models/kotoba-whisper-v2.2
+    whisper-ja-1.5b:
+      hf_id: efwkjn/whisper-ja-1.5B       # whisper-large-v3 全量微调，更准更慢（备选）
+      local_dir: .models/whisper-ja-1.5b
+  device: auto              # auto | mps | cpu（auto：有 MPS 用 MPS，否则 CPU）
+  dtype: float16            # float16 | float32（MPS 上出错时自动回退 float32/CPU）
+  batch_size: 16
+  chunk_length_s: 30.0
+
+generation:
+  language: Japanese
+  # 实测：12s 窗口下 ngram=5 把重复幻觉从 5.7% 压到 0.5%（只损失约 10% 字数）
+  no_repeat_ngram_size: 5
+  repetition_penalty: 1.0
+
+# ---------------- 分段策略（送进模型的窗口）----------------
+# 实测结论：Silero VAD 会把语音从句子中间切断（残句、内容量只有固定窗口的 1/5），
+# anime-whisper 自带时间戳也不可用（短窗内只回 (0.48, None) 单点），
+# 因此默认用「固定窗口 + 边界吸附到静音谷」。
+segment:
+  mode: fixed               # fixed（默认）| vad
+  window_ms: 12000          # 每个窗口 12 秒（实测 12s 文本最完整、重复最少）
+  snap: true                # 边界吸附到附近能量最低点，避免从词中间切断
+  snap_search_ms: 1500      # 吸附搜索半径
+  min_gap_ms: 2000          # 吸附后两边界的最小间隔
+  # 近静音窗口直接跳过（相对噪声底的 dB；0 表示不过滤，会把极轻气息也送去识别）
+  silence_gate_db: 6.0
+  vad:                      # mode: vad 时生效（备选方案）
+    threshold: 0.3
+    min_speech_duration_ms: 200
+    max_speech_duration_s: 12.0
+    min_silence_duration_ms: 300
+    speech_pad_ms: 100
+    merge_gap_ms: 250
+    normalize_for_vad: false   # 实测 AGC 会破坏信噪对比、反而降低检出，默认关闭
+
+postprocess:
+  # 连续相同文本超过该次数才折叠（保守值，避免误伤正常的重复演出/喘息）
+  collapse_repeats: 3
+
+output:
+  # punctuation：在窗口内部按标点细分成多条字幕（时间按字数比例估算，提升可读性）
+  # none：一个窗口一条字幕（时间戳严格等于窗口边界）
+  split_lines: punctuation
+  split_min_chars: 8
+  split_max_chars: 60
+  time_format: "[HH:MM:SS]"
+  write_timing_json: true   # 辅助文件：毫秒时间戳，供下一阶段「台本对照修正」使用
+  write_meta_json: true     # 辅助文件：本次运行的参数与统计

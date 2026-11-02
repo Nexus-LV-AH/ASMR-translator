@@ -1,0 +1,56 @@
+# ============ 机密 / 个人配置 ============
+.env
+.env.*
+config.local.yaml
+
+# ============ 媒体与产物（版权/隐私，绝不入库）============
+input/*
+!input/.gitkeep
+output/*
+!output/.gitkeep
+subtitles_ja/*
+!subtitles_ja/.gitkeep
+lrc_work/*
+!lrc_work/.gitkeep
+LRC成品库/*
+!LRC成品库/.gitkeep
+promptbook/*
+!promptbook/.gitkeep
+对照试验/
+
+# 常见音视频/字幕格式（防止误加）
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+*.opus
+*.mp4
+*.mkv
+*.lrc
+*.txt.bak
+
+# ============ 模型 / 环境 / 工具 ============
+.models/
+.venv/
+.tools/
+models/
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.onnx
+
+# ============ Python / 系统垃圾 ============
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+Thumbs.db
+desktop.ini
+*.log
+*.ses
