@@ -1,0 +1,32 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: 安装测试依赖（不装 torch/模型）
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml numpy
+      - name: 单元测试（三平台）
+        run: python -m unittest discover -s gui_app/tests -v
+      - name: 语法检查
+        run: python -m compileall -q gui_app
+      - name: shell 脚本语法（非 Windows）
+        if: runner.os != 'Windows'
+        run: bash -n start.sh

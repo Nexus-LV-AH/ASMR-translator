@@ -1,0 +1,307 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>音声字幕工房 · 图形界面</title>
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+<div id="tokenError" class="token-error hidden">
+  <div class="token-card">
+    <h1>需要带 token 打开</h1>
+    <p>请从终端/启动器打印的完整地址打开，例如 <code>http://127.0.0.1:8765/?token=...</code>。</p>
+    <p class="muted">如果你是双击应用启动的，启动器会自动打开正确地址；也可以先关闭本页再启动一次。</p>
+  </div>
+</div>
+
+<div id="app" class="app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">音</div>
+      <div>
+        <h1>音声字幕工房</h1>
+        <p class="brand-sub">音频 → 日文字幕 → 中文 LRC · 图形界面</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <span id="statusPill" class="pill idle">连接中…</span>
+      <button id="openSettings" class="ghost">设置</button>
+      <button id="shutdownBtn" class="ghost">退出</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ==================== 主界面 ==================== -->
+    <section id="mainView" class="view">
+      <div id="globalWarnings" class="notice warn hidden"></div>
+
+      <div class="grid-main">
+        <div class="card upload-card">
+          <div class="card-title">
+            <h2>① 拖入作品</h2>
+            <span id="dropModeHint" class="muted small"></span>
+          </div>
+          <div id="dropZone" class="dropzone" tabindex="0" role="button" aria-label="拖入音频或作品文件夹">
+            <div class="drop-icon" aria-hidden="true">⇪</div>
+            <div class="drop-title">把作品文件夹拖到这里</div>
+            <div id="dropSub" class="drop-sub">拖入文件夹最方便，作品名会自动识别；也可以拖入 mp3 / wav / flac 等文件</div>
+            <div class="drop-actions">
+              <button type="button" id="pickFiles" class="ghost">选择文件</button>
+              <button type="button" id="pickFolder" class="ghost">选择文件夹</button>
+            </div>
+            <div id="uploadState" class="upload-state hidden">
+              <div class="bar"><div id="uploadBar" class="bar-fill"></div></div>
+              <div id="uploadText" class="muted small"></div>
+            </div>
+            <input id="fileInput" type="file" multiple hidden>
+            <input id="folderInput" type="file" webkitdirectory multiple hidden>
+          </div>
+
+          <div class="row mt">
+            <label class="label" for="workName">作品名</label>
+            <input id="workName" class="input" maxlength="80" placeholder="例如 RJ01012345" autocomplete="off">
+            <span id="workHint" class="muted small"></span>
+          </div>
+          <div id="existingNotice" class="notice hidden"></div>
+          <div id="fileList" class="file-list"></div>
+          <div class="row between mt">
+            <span id="fileSummary" class="muted small">还没有文件</span>
+            <button type="button" id="clearFiles" class="ghost danger small">清空</button>
+          </div>
+
+          <details id="promptbookBox" class="promptbook">
+            <summary>可选：台本（.txt，有台本会做台本精修）</summary>
+            <div id="promptbookDrop" class="dropzone small">
+              <span>把台本文件夹/文件拖到这里，或</span>
+              <button type="button" id="pickPromptbook" class="link">选择文件</button>
+            </div>
+            <div id="promptbookList" class="file-list"></div>
+            <input id="promptbookInput" type="file" multiple accept=".txt" hidden>
+          </details>
+        </div>
+
+        <div class="card task-card">
+          <div class="card-title"><h2>② 选择任务</h2></div>
+          <div class="task-options" role="radiogroup" aria-label="任务类型">
+            <label class="task-option">
+              <input type="radio" name="mode" value="all" checked>
+              <span class="task-body">
+                <strong>完整运行</strong>
+                <small>提取日文 + 台本精修 + 翻译 → 中文 LRC → 归档到作品包</small>
+                <em>最常用</em>
+              </span>
+            </label>
+            <label class="task-option">
+              <input type="radio" name="mode" value="extract">
+              <span class="task-body">
+                <strong>只提取字幕</strong>
+                <small>音频 → 日文字幕（+台本精修），不翻译、不归档</small>
+              </span>
+            </label>
+            <label class="task-option">
+              <input type="radio" name="mode" value="translate">
+              <span class="task-body">
+                <strong>制作翻译</strong>
+                <small>已有日文字幕（.srt / .lrc / .txt）→ 中文 LRC，不需要音频</small>
+              </span>
+            </label>
+          </div>
+
+          <div class="row mt">
+            <label class="label" for="modelSelect">翻译模型</label>
+            <select id="modelSelect" class="input"></select>
+            <button type="button" id="openSettingsSmall" class="ghost small">设置</button>
+          </div>
+          <div id="modelNote" class="notice hidden"></div>
+
+          <details class="advanced">
+            <summary>高级选项</summary>
+            <label class="check"><input id="optForce" type="checkbox"> 强制重跑（忽略缓存与已存在字幕）</label>
+            <label class="check"><input id="optBilingual" type="checkbox"> LRC 中日对照</label>
+            <label class="check"><input id="optNoConsolidate" type="checkbox"> 不归档，产物留在工作区</label>
+            <label class="check"><input id="optRefineNoModel" type="checkbox"> 台本精修只用规则（不加载模型）</label>
+            <label class="check"><input id="optPreventSleep" type="checkbox" checked> 任务期间阻止系统休眠</label>
+            <div class="row">
+              <label class="check">试翻前 <input id="optLimit" class="input tiny" type="number" min="1" step="1" placeholder="不限"> 行</label>
+            </div>
+            <p class="muted small">试翻模式不会归档；确认效果后请正常跑一次。</p>
+          </details>
+
+          <button type="button" id="startBtn" class="primary big">开始任务</button>
+          <div id="startHint" class="muted small"></div>
+        </div>
+      </div>
+
+      <div class="grid-bottom">
+        <div class="card progress-card">
+          <div class="card-title">
+            <h2>进度</h2>
+            <span id="jobStatusPill" class="pill idle">空闲</span>
+          </div>
+          <div id="stageSteps" class="steps"></div>
+          <div class="bar big-bar"><div id="jobBar" class="bar-fill"></div></div>
+          <div class="row between">
+            <span id="jobStageText" class="stage-text">等待任务</span>
+            <span id="jobPercent" class="percent">0%</span>
+          </div>
+          <div id="jobFile" class="muted small"></div>
+          <div class="row between mt">
+            <span id="jobElapsed" class="muted small"></span>
+            <span id="jobEta" class="muted small"></span>
+          </div>
+          <div class="row mt">
+            <button type="button" id="cancelBtn" class="danger hidden">取消任务</button>
+          </div>
+        </div>
+
+        <div class="card results-card">
+          <div class="card-title"><h2>结果</h2></div>
+          <div id="resultsEmpty" class="muted">任务完成后，作品包和 LRC 会显示在这里。</div>
+          <div id="resultsBody" class="hidden">
+            <div id="resultBanner" class="notice hidden"></div>
+            <div id="resultPaths" class="result-paths"></div>
+            <div id="lrcList" class="file-list"></div>
+            <div class="row wrap mt">
+              <button type="button" id="openBundleBtn" class="ghost small">打开作品包</button>
+              <button type="button" id="openCollectBtn" class="ghost small">打开 LRC 成品库</button>
+              <button type="button" id="openWorkspaceBtn" class="ghost small">打开工作区</button>
+              <a id="downloadZip" class="button primary small hidden" href="#">下载 LRC ZIP</a>
+            </div>
+          </div>
+        </div>
+
+        <div class="card log-card">
+          <div class="card-title">
+            <h2>日志</h2>
+            <div class="row">
+              <label class="check small"><input id="autoScroll" type="checkbox" checked> 自动滚动</label>
+              <button type="button" id="copyLogBtn" class="ghost small">复制</button>
+              <button type="button" id="openLogBtn" class="ghost small">打开日志</button>
+            </div>
+          </div>
+          <div id="log" class="log" role="log" aria-live="polite"><div class="empty-hint">任务开始后这里会显示实时日志。</div></div>
+          <details class="task-info">
+            <summary>任务信息 / 实际命令</summary>
+            <div id="taskInfo" class="task-info-body"></div>
+          </details>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== 设置页 ==================== -->
+    <section id="settingsView" class="view hidden">
+      <div class="settings-head">
+        <button type="button" id="backToMain" class="ghost">← 返回</button>
+        <h2>设置</h2>
+      </div>
+      <div id="settingsWarnings" class="notice warn hidden"></div>
+
+      <div class="card">
+        <div class="card-title">
+          <h2>本地模型</h2>
+          <button type="button" id="addModelToggle" class="primary small">+ 添加模型</button>
+        </div>
+        <p class="muted small">用系统文件窗口选择 <code>.gguf</code>；应用会读取模型信息并自动识别名称、参数量、量化。模型在原位置使用，不复制、不上传。</p>
+        <div id="localModels" class="model-list"></div>
+
+        <div id="addModelPanel" class="subpanel hidden">
+          <div class="row wrap">
+            <button type="button" id="pickModelFile" class="primary small">选择模型文件</button>
+            <button type="button" id="pickModelFolder" class="ghost small">选择模型文件夹</button>
+          </div>
+          <div class="row">
+            <input id="modelPath" class="input" placeholder="或直接输入 / 粘贴 .gguf 路径">
+            <button type="button" id="inspectModelBtn" class="ghost">识别</button>
+          </div>
+          <div id="modelCandidates" class="file-list"></div>
+          <div id="inspectResult" class="notice hidden"></div>
+          <div id="modelSavePanel" class="hidden">
+            <div class="row">
+              <label class="label" for="modelDisplayName">显示名称</label>
+              <input id="modelDisplayName" class="input" maxlength="120" placeholder="自动识别；可修改">
+            </div>
+            <div id="modelMeta" class="meta-grid"></div>
+            <div class="row wrap">
+              <label class="check"><input id="modelMakeDefault" type="checkbox"> 设为默认</label>
+              <button type="button" id="saveModelBtn" class="primary">保存为翻译模型</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <h2>云端大模型 API</h2>
+          <button type="button" id="addApiBtn" class="ghost small">+ 自定义 API</button>
+        </div>
+        <p class="muted small">默认 DeepSeek；也可以填任意 OpenAI 兼容端点。只把字幕文本发给该 API，音频不会上传。</p>
+        <div id="apiList" class="model-list"></div>
+
+        <div id="apiPanel" class="subpanel hidden">
+          <div class="row">
+            <label class="label" for="apiProvider">服务</label>
+            <select id="apiProvider" class="input">
+              <option value="deepseek">DeepSeek 官方</option>
+              <option value="custom">自定义 OpenAI 兼容</option>
+            </select>
+          </div>
+          <div class="row">
+            <label class="label" for="apiKey">API Key</label>
+            <input id="apiKey" class="input" type="password" autocomplete="off" placeholder="留空 = 保持已保存的 Key">
+            <button type="button" id="apiKeyClear" class="ghost danger small">清除</button>
+          </div>
+          <div id="apiKeyStatus" class="muted small"></div>
+          <div class="row">
+            <label class="label" for="apiBase">Base URL</label>
+            <input id="apiBase" class="input" placeholder="https://api.deepseek.com/v1">
+          </div>
+          <div class="row">
+            <label class="label" for="apiModel">模型</label>
+            <input id="apiModel" class="input" list="apiModelList" placeholder="deepseek-flash">
+            <datalist id="apiModelList"></datalist>
+          </div>
+          <div class="row">
+            <label class="label" for="apiDisplay">显示名称</label>
+            <input id="apiDisplay" class="input" maxlength="120" placeholder="可选；会写进 LRC 的 [by:]">
+          </div>
+          <div id="apiTestResult" class="notice hidden"></div>
+          <div class="row wrap">
+            <button type="button" id="apiTestBtn" class="ghost">测试连接</button>
+            <button type="button" id="apiSaveBtn" class="primary">保存 API 设置</button>
+          </div>
+          <p class="muted small">测试会读取模型列表并发送一条极短测试，可能产生少量费用；Key 只保存在本机 <code>.env</code>，不会回显或写日志。</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title"><h2>文件夹 / 关于</h2></div>
+        <div class="row wrap">
+          <button type="button" class="ghost small" data-open="input">打开输入文件夹</button>
+          <button type="button" class="ghost small" data-open="output">打开作品包文件夹</button>
+          <button type="button" class="ghost small" data-open="collect">打开 LRC 成品库</button>
+          <button type="button" class="ghost small" data-open="config">打开配置文件夹</button>
+          <button type="button" class="ghost small" data-open="logs">打开日志文件夹</button>
+        </div>
+        <div id="aboutInfo" class="muted small mt"></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="modal-card">
+    <div class="row between">
+      <h3 id="modalTitle">预览</h3>
+      <button type="button" id="modalClose" class="ghost small">关闭</button>
+    </div>
+    <pre id="modalBody" class="modal-pre"></pre>
+  </div>
+</div>
+<div id="toast" class="toast hidden" role="status"></div>
+
+<script src="/static/app.js" defer></script>
+</body>
+</html>

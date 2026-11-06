@@ -1,0 +1,94 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            name: macOS-arm64
+            artifact: macOS-arm64
+          - os: macos-13
+            name: macOS-x64
+            artifact: macOS-x64
+          - os: windows-latest
+            name: Windows-x64
+            artifact: Windows-x64
+          - os: ubuntu-latest
+            name: Linux-x64
+            artifact: Linux-x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: 安装构建/测试依赖
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyyaml numpy pyinstaller pillow
+      - name: 测试
+        run: python -m unittest discover -s gui_app/tests -v
+      - uses: astral-sh/setup-uv@v6
+      - name: 构建便携发布包
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME:-dev}"
+          VERSION="${TAG#v}"
+          if [ -z "$VERSION" ]; then VERSION="dev"; fi
+          python gui_app/tools/build_release.py --version "$VERSION" --out release
+          ls -lh release/
+      - name: Windows 校验（自检启动器）
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # 只验证打包产物能启动 Setup 页；不安装依赖
+          find release -maxdepth 2 -name "ASMR-Translator.exe" -print -quit || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release/*.zip
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: 生成校验和
+        run: |
+          cd artifacts
+          find . -name "*.zip" -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS || true
+          ls -lh
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/**/*.zip
+            artifacts/SHA256SUMS
+          generate_release_notes: true
+          body: |
+            ## 音声字幕工房 图形界面版
+
+            普通用户下载对应系统的 zip：
+            - macOS：解压后双击 `音声字幕工房.app`；第一次被 Gatekeeper 拦截时右键 → 打开。
+            - Windows：解压后双击 `ASMR-Translator.exe`；SmartScreen 提示时“更多信息 → 仍要运行”。
+            - Linux：解压后给 `ASMR-Translator` 执行权限并双击（或 `./ASMR-Translator`）。
+
+            第一次启动会安装运行环境（约 2–4GB），之后在界面里选择本地模型或填云端 API Key。
+            详细步骤见包内 `使用说明.txt`。应用默认未签名，安全提示属于正常现象。

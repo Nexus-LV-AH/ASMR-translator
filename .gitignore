@@ -40,6 +40,16 @@ models/
 *.pt
 *.onnx
 
+# ============ 图形界面运行时 / 打包产物 ============
+runtime/
+dist/
+build/
+release/
+.release-build/
+*.app
+launcher/build/
+launcher/dist/
+
 # ============ Python / 系统垃圾 ============
 __pycache__/
 *.py[cod]
