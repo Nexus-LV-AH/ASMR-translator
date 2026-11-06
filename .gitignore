@@ -8,10 +8,8 @@ input/*
 !input/.gitkeep
 output/*
 !output/.gitkeep
-subtitles_ja/*
-!subtitles_ja/.gitkeep
-lrc_work/*
-!lrc_work/.gitkeep
+中间文件/*
+!中间文件/.gitkeep
 LRC成品库/*
 !LRC成品库/.gitkeep
 promptbook/*

@@ -126,10 +126,13 @@ translation:
 
 paths:
   input_dir: input              # 音频目录（支持按作品建子文件夹；也可命令行直接传文件/目录）
-  subtitles_dir: subtitles_ja   # 日文中间产物：<名>.ja.txt / .timing.json / .meta.json
+  work_dir: 中间文件            # ★ 统一中间目录：提取写入、翻译读取（跑完归档后清空）
+  work_dirs:                    # 中间目录下的子目录名
+    ja: 日文字幕                # 提取输出 = 翻译输入；也可直接放外部 .srt/.lrc/带时间戳 .txt
+    zh: 中文字幕                # 翻译输出（.zh.txt / 缓存 / 元数据）
+    lrc: LRC                    # LRC 暂存，归档时并入作品包「字幕文件/中文」
   promptbook_dir: promptbook    # 台本工作区（<作品>/<轨道>.txt）
-  output_dir: output            # 中文文本 + 任务归档（见下方 bundle）
-  lrc_dir: lrc_work             # LRC 中转/工作目录（归档时会被清空；成品在作品包里）
+  output_dir: output            # 最终作品包（字幕文件/音频/台本）
   collect_dir: LRC成品库        # 只进不出：每轮结束后把该作品的中文 LRC 复制到这里（按 RJ 号分文件夹）
 
 # ---------------- 任务归档（翻译模式生效；提取模式不动文件）----------------

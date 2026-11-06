@@ -317,14 +317,14 @@ def main() -> int:
     model_cfg = cfg.get("model") or {}
     gen_cfg = cfg.get("generation") or {}
 
-    paths_cfg = cfg.get("paths") or {}
-    # 日文中间产物独立目录（不再与中文产物混在 output/）
-    output_root = Path(args.output_dir or paths_cfg.get("subtitles_dir") or "subtitles_ja")
+    import paths_util
+
+    wp = paths_util.work_paths(cfg)
+    # 提取产物写入统一中间目录的「日文字幕」（翻译阶段从这里读取）
+    output_root = Path(args.output_dir).expanduser() if args.output_dir else wp["ja"]
     if not output_root.is_absolute():
         output_root = PROJECT_ROOT / output_root
-    input_root = Path(paths_cfg.get("input_dir") or "input")
-    if not input_root.is_absolute():
-        input_root = PROJECT_ROOT / input_root
+    input_root = wp["input"]
 
     inputs = args.inputs or [str(input_root)]
     media_files = collect_media(inputs)

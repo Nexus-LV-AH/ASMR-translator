@@ -35,7 +35,7 @@ logger = logging.getLogger("rebuild")
 
 def rebuild_one(ja_path: Path, out_dir: Path, lrc_dir: Path, only_zh_txt: bool = False,
                 cfg: dict | None = None) -> dict:
-    """从缓存重写 <stem>.zh.txt（必要时也重写 LRC）。out_dir/lrc_dir 直接给出，兼容两种布局。"""
+    """从缓存重写 <stem>.zh.txt（必要时也重写 LRC）。out_dir/lrc_dir 直接给出，兼容工作区与作品包两种布局。"""
     stem = T.subtitle_stem(ja_path)
     cache_path = out_dir / f"{stem}.zh.cache.json"
     if not cache_path.exists():
@@ -135,15 +135,19 @@ def main() -> int:
 
     cfg = T.load_config(Path(args.config).expanduser()
                         if Path(args.config).is_absolute() else PROJECT_ROOT / args.config)
-    paths = cfg.get("paths") or {}
+    import paths_util
 
-    def resolve(v, key, default):
-        q = Path(v or paths.get(key) or default).expanduser()
+    wp = paths_util.work_paths(cfg)
+
+    def _p(v, default: Path) -> Path:
+        if not v:
+            return default
+        q = Path(str(v)).expanduser()
         return q if q.is_absolute() else PROJECT_ROOT / q
 
-    sub_root = resolve(args.subtitles, "subtitles_dir", "subtitles_ja")
-    out_root = resolve(args.output_root, "output_dir", "output")
-    lrc_root = resolve(args.lrc_root, "lrc_dir", "lrc_work")
+    sub_root = _p(args.subtitles, wp["ja"])
+    out_root = _p(args.output_root, wp["zh"])
+    lrc_root = _p(args.lrc_root, wp["lrc"])
     for d in (sub_root, out_root):
         if not d.is_dir():
             logger.error("目录不存在：%s", d)

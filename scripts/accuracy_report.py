@@ -7,7 +7,7 @@
     整串相似度会被严重低估（实测同一份产出：整串相似度 65% vs 覆盖度 96%）。
 
 用法：
-    python scripts/accuracy_report.py --asr subtitles_ja/xxx.ja.txt --script track3台本.txt
+    python scripts/accuracy_report.py --asr 中间文件/日文字幕/xxx.ja.txt --script track3台本.txt
     python scripts/accuracy_report.py --asr ... --script ... --threshold 0.7
 """
 from __future__ import annotations

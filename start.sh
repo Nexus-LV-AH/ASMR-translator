@@ -83,10 +83,10 @@ fi
 
 # ---- 6. 自动验收（格式/单调性/拟声保留/未译行/中文标题）----
 # 归档后中间目录会被清空 → 优先验收作品包
-if [ -n "$(find subtitles_ja -name '*.ja.txt' -maxdepth 4 -print -quit 2>/dev/null)" ]; then
+if [ -n "$(find 中间文件 -name '*.ja.txt' -maxdepth 6 -print -quit 2>/dev/null)" ]; then
   echo
-  echo "==> 产出验收（工作区：subtitles_ja/）"
-  "$PYTHON" scripts/verify_output.py subtitles_ja/ --check-translation || true
+  echo "==> 产出验收（工作区：中间文件/）"
+  "$PYTHON" scripts/verify_output.py 中间文件/日文字幕/ --check-translation || true
 elif [ -d output ]; then
   echo
   echo "==> 产出验收（作品包：output/）"

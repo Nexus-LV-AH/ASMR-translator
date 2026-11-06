@@ -10,8 +10,8 @@
   6. 文本量：行数、总字数、平均行长
 
 用法：
-    python scripts/verify_output.py subtitles_ja/*.ja.txt
-    python scripts/verify_output.py subtitles_ja/            # 检查目录下所有 .ja.txt
+    python scripts/verify_output.py 中间文件/日文字幕/*.ja.txt
+    python scripts/verify_output.py 中间文件/日文字幕/            # 检查目录下所有 .ja.txt
 """
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ SCAFFOLD_HINT_RE = re.compile(
     r"|\[(?:Input|History|Glossary|Output)\]|【(?:台本|输入|输出|上下文)】"
 )
 LRC_TS_RE = re.compile(r"^\[\d{2}:\d{2}(?:\.\d{1,2})?\]")
-SUBTITLE_SUFFIX_RE = re.compile(r"\.ja(?:\.refined)?\.txt$")
+SUBTITLE_SUFFIX_RE = re.compile(r"\.(?:ja(?:\.refined)?\.txt|srt|lrc|txt)$", re.I)
 # 行首编号/包裹残留（模型把 `[10. 译文]` 这类输出漏进产物）
 NUMBER_WRAPPER_RE = re.compile(r"^\[\d\d:\d\d:\d\d\]\s*(?:[\[【（(]\s*)?\d{1,4}\s*[.、)）．:：\]]")
 
@@ -47,6 +47,17 @@ def is_moan_line(text: str) -> bool:
 
 
 def parse_lines(path: Path) -> tuple[list[tuple[int, str]], list[str]]:
+    """解析日文字幕行（支持本工具 .ja.txt、.srt、.lrc、带时间戳 .txt）。"""
+    if path.suffix.lower() in (".srt", ".lrc") or (
+            path.suffix.lower() == ".txt" and not path.name.endswith(".ja.txt")):
+        try:
+            import translate as _T
+
+            rows = _T.parse_subtitle(path)
+        except Exception:  # noqa: BLE001
+            rows = []
+        if rows:
+            return [(r.start_ms // 1000, r.text) for r in rows], []
     entries: list[tuple[int, str]] = []
     bad: list[str] = []
     for raw in path.read_text(encoding="utf-8").splitlines():
@@ -197,37 +208,31 @@ def main() -> int:
     p.add_argument("paths", nargs="+", help="字幕 txt 文件或目录（目录会递归扫描）")
     p.add_argument("--repeat-limit", type=int, default=3, help="允许的连续重复次数上限")
     p.add_argument("--check-translation", action="store_true", help="同时检查配对的中文 LRC / 未译行")
-    p.add_argument("--subtitles-root", default="subtitles_ja", help="日文字幕根目录（用于算相对路径）")
-    p.add_argument("--lrc-root", default="lrc_work", help="LRC 中转目录（镜像 subtitles 的子路径）")
-    p.add_argument("--output-root", default=None, help="中文文本目录（默认 config paths.output_dir）")
+    p.add_argument("--subtitles-root", default=None, help="日文字幕根（默认 config 中间目录/日文字幕）")
+    p.add_argument("--zh-root", default=None, help="中文文本根（默认 config 中间目录/中文字幕）")
+    p.add_argument("--lrc-root", default=None, help="LRC 根（默认 config 中间目录/LRC）")
+    p.add_argument("--output-root", default=None, help="作品包根（默认 config paths.output_dir）")
     p.add_argument("--config", default="config.yaml", help="配置文件路径（未显式给根目录时用它取默认值）")
     args = p.parse_args()
 
     try:
         import translate as _T
+        import paths_util
 
         _p = Path(args.config)
         _cfg = _T.load_config(_p if _p.is_absolute() else Path.cwd() / _p)
-        _paths = _cfg.get("paths") or {}
+        _wp = paths_util.work_paths(_cfg)
     except Exception:  # noqa: BLE001
-        _paths = {}
-    if args.subtitles_root == "subtitles_ja" and _paths.get("subtitles_dir"):
-        args.subtitles_root = str(_paths["subtitles_dir"])
-    if args.lrc_root == "lrc_work" and _paths.get("lrc_dir"):
-        args.lrc_root = str(_paths["lrc_dir"])
-    if not args.output_root:
-        args.output_root = str(_paths.get("output_dir") or "output")
+        _wp = {}
 
-    root = Path(args.subtitles_root)
-    if not root.is_absolute():
-        root = Path.cwd() / root
-    lrc_root = Path(args.lrc_root)
-    if not lrc_root.is_absolute():
-        lrc_root = Path.cwd() / lrc_root
+    def _root(raw, key: str, default: str) -> Path:
+        q = Path(raw or _wp.get(key) or default).expanduser()
+        return q if q.is_absolute() else Path.cwd() / q
 
-    out_root = Path(args.output_root)
-    if not out_root.is_absolute():
-        out_root = Path.cwd() / out_root
+    root = _root(args.subtitles_root, "ja", "中间文件/日文字幕")
+    zh_root = _root(args.zh_root, "zh", "中间文件/中文字幕")
+    lrc_root = _root(args.lrc_root, "lrc", "中间文件/LRC")
+    out_root = _root(args.output_root, "output", "output")
 
     def dir_for(base: Path, ja_file: Path) -> Path | None:
         try:
@@ -278,7 +283,7 @@ def main() -> int:
             if br:      # 作品包布局：中文文本与 LRC 都在 字幕文件/中文/
                 zh_d, lrc_d = br
             else:
-                zh_d, lrc_d = dir_for(out_root, f), dir_for(lrc_root, f)
+                zh_d, lrc_d = dir_for(zh_root, f), dir_for(lrc_root, f)
             r["issues"].extend(check_translation(f, lrc_d, zh_d))
         status = "✅ PASS" if not r["issues"] else "❌ FAIL"
         if r["issues"]:

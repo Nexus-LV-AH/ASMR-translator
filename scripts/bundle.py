@@ -27,6 +27,8 @@ import unicodedata
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import paths_util
+
 SCRIPT_DIR = Path(__file__).resolve().parent
 PROJECT_ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(SCRIPT_DIR))
@@ -72,10 +74,12 @@ def subtitle_stem(name: str) -> str:
 @dataclass
 class Paths:
     input: Path
-    subtitles: Path
+    work: Path          # 统一中间目录
+    subtitles: Path     # work/日文字幕（提取输出 = 翻译输入）
+    zh: Path            # work/中文字幕
+    lrc: Path           # work/LRC
     promptbook: Path
-    output: Path
-    lrc: Path
+    output: Path        # 最终作品包
     collect: Path
 
 
@@ -91,15 +95,9 @@ class BundleCfg:
 
 
 def load_paths(cfg: dict) -> Paths:
-    p = cfg.get("paths") or {}
-
-    def _abs(key: str, default: str) -> Path:
-        q = Path(p.get(key) or default).expanduser()
-        return q if q.is_absolute() else PROJECT_ROOT / q
-
-    return Paths(input=_abs("input_dir", "input"), subtitles=_abs("subtitles_dir", "subtitles_ja"),
-                 promptbook=_abs("promptbook_dir", "promptbook"), output=_abs("output_dir", "output"),
-                 lrc=_abs("lrc_dir", "lrc_work"), collect=_abs("collect_dir", "LRC成品库"))
+    p = paths_util.work_paths(cfg)
+    return Paths(input=p["input"], work=p["work"], subtitles=p["ja"], zh=p["zh"], lrc=p["lrc"],
+                 promptbook=p["promptbook"], output=p["output"], collect=p["collect"])
 
 
 def load_cfg(cfg: dict) -> BundleCfg:
@@ -118,38 +116,56 @@ def load_cfg(cfg: dict) -> BundleCfg:
 FLAT = ""      # 扁平工作区：音频/字幕直接放在根目录下（没有作品子文件夹）
 
 
-def work_dirs(paths: Paths) -> list[str]:
-    """待归档的作品列表。
+def _has_lines(f: Path) -> bool:
+    """该字幕文件是否有带时间轴的可翻译行（纯文本/坏文件不算轨道）。"""
+    try:
+        import translate as T
 
-    - 子文件夹布局：返回作品目录名（如 "耳朵"、"wav"）
-    - **扁平布局**（音频直接丢在 input/ 下，字幕也直接落在 subtitles_ja/ 下）：返回 [""]
+        return bool(T.parse_subtitle(f))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def work_dirs(paths: Paths) -> list[str]:
+    """待归档的作品列表（有任意可翻译字幕的作品）。
+
+    - 子文件夹布局：返回作品目录名（如 "RJ01012345"）
+    - **扁平布局**（音频直接丢在 input/ 下，字幕也直接落在 中间文件/日文字幕/ 下）：返回 [""]
     """
     if not paths.subtitles.is_dir():
         return []
     out = [d.name for d in sorted(p for p in paths.subtitles.iterdir() if p.is_dir())
-           if any(d.rglob("*.ja.txt"))]
-    if any(paths.subtitles.glob("*.ja.txt")):
+           if any(_has_lines(f) for f in paths_util.iter_subtitles(d))]
+    if any(_has_lines(f) for f in paths_util.iter_subtitles(paths.subtitles, recursive=False)):
         out.append(FLAT)
     return out
 
 
 def _iter_ja(paths: Paths, work: str) -> list[Path]:
+    """该作品的字幕输入（.ja.txt / .srt / .lrc / 带时间戳的 .txt；不含精修版与中文产物）。"""
     root = paths.subtitles / work if work else paths.subtitles
-    files = sorted(root.rglob("*.ja.txt")) if work else sorted(root.glob("*.ja.txt"))
-    return [f for f in files if not f.name.endswith(".ja.refined.txt")]
+    return paths_util.iter_subtitles(root)
 
 
 def _iter_zh(paths: Paths, work: str) -> list[Path]:
-    root = paths.output / work if work else paths.output
+    root = paths.zh / work if work else paths.zh
     return sorted(root.rglob("*.zh.txt")) if work else sorted(root.glob("*.zh.txt"))
 
 
 def missing_translations(paths: Paths, work: str) -> list[str]:
     """该作品里"有日文字幕但没有中文字幕"的轨道（返回轨道名列表）。"""
-    # 注意：.zh.txt 不在 T.subtitle_stem 的后缀表里（那个只认 .ja.txt/.ja.refined.txt），这里显式剥
     zh_stems = {_norm(f.name[: -len(".zh.txt")]) for f in _iter_zh(paths, work)}
-    return [subtitle_stem(ja.name) for ja in _iter_ja(paths, work)
-            if _norm(subtitle_stem(ja.name)) not in zh_stems]
+    missing, seen = [], set()
+    for sub in _iter_ja(paths, work):
+        if not _has_lines(sub):        # 纯文本/坏文件不算"缺翻译的轨道"
+            continue
+        stem = paths_util.strip_subtitle_suffix(sub.name)
+        if stem in seen:
+            continue
+        seen.add(stem)
+        if _norm(stem) not in zh_stems:
+            missing.append(stem)
+    return missing
 
 
 def find_media(paths: Paths, work: str) -> tuple[list[Path], str | None]:
@@ -172,6 +188,16 @@ def find_media(paths: Paths, work: str) -> tuple[list[Path], str | None]:
              if f.is_file() and f.suffix.lower() in MEDIA_EXT
              and ((track_number(f.name) in nums) or (_norm(f.stem) in stems))]
     if not cands:
+        # 兜底：用户自带字幕的文件名可能和音频完全不同 → 按**作品目录名**（如 RJ 号）整目录取
+        if work:
+            d = paths.input / work
+            if d.is_dir():
+                media = [f for f in sorted(d.rglob("*"))
+                         if f.is_file() and f.suffix.lower() in MEDIA_EXT]
+                if media:
+                    logger.info("字幕名与音频不匹配，按作品目录名匹配：input/%s/（%d 个音频）",
+                                work, len(media))
+                    return media, work
         return [], None
 
     # 2) 按"所在目录"分组择优，避免把别的批次/别的作品的同名音频顺手牵羊：
@@ -271,7 +297,6 @@ def _move_dir_contents(src: Path, dst: Path, *, dry_run: bool, moves: list[tuple
     for f in items:
         if not f.is_file() or f.name == ".DS_Store":
             continue
-        if f.name == "refine_summary.md":       # 跨作品汇总报告，留在原处不当产物搬
             continue
         if exclude_dirs and any(d in f.parents for d in exclude_dirs):
             continue
@@ -359,7 +384,7 @@ def collect_lrc(cfg: dict, work: str, *, name: str | None = None, dry_run: bool 
     """把该作品的中文 LRC **复制**到 <collect_dir>/<作品>/（只写入，不取出、不删除）。
 
     作品名默认用 input 下的文件夹名（如 RJ01012345）。
-    来源优先作品包里的 字幕文件/中文/*.lrc，其次工作区 lrc_work/<作品>/*.lrc。
+    来源优先作品包里的 字幕文件/中文/*.lrc，其次工作区 中间文件/LRC/<作品>/*.lrc。
     这个目录只增不减：同名文件覆盖为最新版本，其它一律不动。
     """
     paths = load_paths(cfg)
@@ -434,8 +459,12 @@ def consolidate_work(cfg: dict, work: str, *, dry_run: bool = False) -> dict:
     # 顺序要紧：zh 的源目录可能就是作品包根（output/<作品>），必须先搬，
     # 并排除作品包内的内容，避免把刚搬进去的 ja/ 再套进 zh/ja/。
     # 扁平模式只搬根目录下的文件（roots_only），不会卷走别的作品子目录。
-    counts["zh"] = _move_dir_contents(paths.output / work, dst["zh"], dry_run=dry_run, moves=moves,
+    counts["zh"] = _move_dir_contents(paths.zh / work, dst["zh"], dry_run=dry_run, moves=moves,
                                       exclude_dirs=_sub_dirs(), roots_only=flat)
+    # 工作区里若混进了中文产物/LRC，先归到「中文」，别让它们进「日文」
+    for pat in ("*.zh.txt", "*.zh.cache.json", "*.zh.meta.json", "*.lrc"):
+        for stray in sorted((paths.subtitles / work).rglob(pat)) if work else []:
+            counts["zh"] += _move_files([stray], dst["zh"], dry_run=dry_run, moves=moves, exclude_dirs=_sub_dirs())
     counts["ja"] = _move_dir_contents(paths.subtitles / work, dst["ja"], dry_run=dry_run, moves=moves,
                                       exclude_dirs=_sub_dirs(), roots_only=flat)
     # LRC 也是中文字幕文件 → 进「中文」
@@ -468,7 +497,7 @@ def consolidate_work(cfg: dict, work: str, *, dry_run: bool = False) -> dict:
         return {"status": "dry-run", "work": work, "bundle": bundle, "files": len(moves)}
 
     for d in filter(None, (paths.subtitles / work if work else None,
-                           paths.output / work if work else None,
+                           paths.zh / work if work else None,
                            paths.lrc / work if work else None,
                            paths.promptbook / pb_work if pb_work else None,
                            paths.input / in_work if in_work else None)):

@@ -2,7 +2,7 @@
 """台本精修字幕：以台本为准 + 提取的时间戳，生成精准日文字幕（模型只做判定，不生成内容）。
 
 流程：
-    1) 台本发现：subtitles_ja/<作品> ↔ promptbook/<作品>（文件夹名归一化后比对）+ 轨道号配对
+    1) 台本发现：中间文件/日文字幕/<作品> ↔ promptbook/<作品>（文件夹名归一化后比对）+ 轨道号配对
     2) 对齐：单调 DP（支持"多条 ASR 片段 → 一条台本"，也支持跳过），打分用 F1 形式的覆盖度
     3) 重组：以台本行为字幕单位，时间 = 该台本行所辖 ASR 片段的起止范围（合并片段）
     4) 判定：置信度处于中段的条目交给模型判"是否同一句"（只答 1/0，不产出内容）
@@ -395,8 +395,8 @@ def discover(sub_root: Path, pb_root: Path) -> list[tuple[str, list[tuple[Path, 
     """返回 [(作品名, [(字幕, 台本), ...])]。
 
     支持两种布局：
-      A) 作品子文件夹：subtitles_ja/<作品>/xx.ja.txt  ↔  promptbook/<作品>/<轨道>.txt
-      B) 平铺：字幕直接放在 subtitles_ja/ 下，按"轨道号"在 promptbook 里唯一匹配（产物落 out_root 根）
+      A) 作品子文件夹：中间文件/日文字幕/<作品>/xx.ja.txt  ↔  promptbook/<作品>/<轨道>.txt
+      B) 平铺：字幕直接放在 中间文件/日文字幕/ 下，按"轨道号"在 promptbook 里唯一匹配（产物落 out_root 根）
     """
     pb_dirs = {norm_work(d.name): d for d in pb_root.iterdir() if d.is_dir()}
     out: list[tuple[str, list[tuple[Path, Path]]]] = []
@@ -413,7 +413,7 @@ def discover(sub_root: Path, pb_root: Path) -> list[tuple[str, list[tuple[Path, 
     for work_dir in sorted(d for d in sub_root.iterdir() if d.is_dir()):
         pb_dir = pb_dirs.get(norm_work(work_dir.name))
         if pb_dir is None:
-            # 例子：字幕在 subtitles_ja/wav/（跟着音频目录名），台本在 promptbook/耳朵/。
+            # 例子：字幕在 中间文件/日文字幕/wav/（跟着音频目录名），台本在 promptbook/耳朵/。
             # 目录名不同不该让整轮失败：按轨道号在每个台本目录里找唯一匹配，命中最多者胜出。
             best, best_hits = None, 0
             for cand in pb_dirs.values():
@@ -467,13 +467,35 @@ def discover(sub_root: Path, pb_root: Path) -> list[tuple[str, list[tuple[Path, 
     return out
 
 
+def _write_summary(summary_path: Path, results: list[dict]) -> int:
+    """写台本精修汇总（同一文件以最新一次为准，支持历次运行合并）。返回累计轨道数。"""
+    header = ["# 台本精修汇总", "", f"- 产物目录：`{summary_path.parent}`", "",
+              "| 文件 | 台本行 | 用上台本 | ASR 行 | 精修后 | 采用台本 | 退回识别 | 专有词疑点 |",
+              "|---|---|---|---|---|---|---|---|"]
+    rows: dict[str, str] = {}
+    if summary_path.exists():
+        for line in summary_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("| ") and not line.startswith("| 文件"):
+                name = line.split("|")[1].strip()
+                if name:
+                    rows[name] = line
+    for r in results:
+        if r.get("status") != "done":
+            continue
+        rows[r["file"]] = (f"| {r['file']} | {r['script_lines']} | {r['matched']} | {r['asr_lines']} | {r['entries']} "
+                           f"| {r['certain']} | {r['extra']} | {r['name_issues']} |")
+    summary_path.parent.mkdir(parents=True, exist_ok=True)
+    summary_path.write_text("\n".join(header + [rows[k] for k in sorted(rows)]) + "\n", encoding="utf-8")
+    return len(rows)
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description="台本精修字幕（台本为准 + 提取时间戳）")
     p.add_argument("--config", default=str(PROJECT_ROOT / "config.yaml"), help="配置文件路径")
     p.add_argument("--subtitles", default=None)
     p.add_argument("--promptbook", default=None, help="台本目录（默认 config paths.promptbook_dir）")
     p.add_argument("--out-root", default=None,
-                   help="产物根目录（默认 config paths.subtitles_dir，即与 ASR 版日文字幕放在一起）")
+                   help="产物根目录（默认与 ASR 版日文字幕同目录：中间文件/日文字幕）")
     p.add_argument("--work", default=None, help="只处理指定作品")
     p.add_argument("--track", default=None, help="只处理指定轨道号")
     p.add_argument("--min-score", type=float, default=0.35, help="对齐最低分（F1 覆盖度）")
@@ -492,12 +514,14 @@ def main() -> int:
 
     cfg = T.load_config(Path(args.config).expanduser()
                         if Path(args.config).is_absolute() else PROJECT_ROOT / args.config)
-    paths_cfg = cfg.get("paths") or {}
-    sub_root = Path(args.subtitles or paths_cfg.get("subtitles_dir") or "subtitles_ja")
+    import paths_util
+
+    wp = paths_util.work_paths(cfg)
+    sub_root = Path(args.subtitles).expanduser() if args.subtitles else wp["ja"]
     sub_root = sub_root if sub_root.is_absolute() else PROJECT_ROOT / sub_root
-    pb_root = Path(args.promptbook or paths_cfg.get("promptbook_dir") or "promptbook")
+    pb_root = Path(args.promptbook).expanduser() if args.promptbook else wp["promptbook"]
     pb_root = pb_root if pb_root.is_absolute() else PROJECT_ROOT / pb_root
-    out_root = Path(args.out_root or paths_cfg.get("subtitles_dir") or "subtitles_ja")
+    out_root = Path(args.out_root).expanduser() if args.out_root else wp["ja"]
     out_root = out_root if out_root.is_absolute() else PROJECT_ROOT / out_root
     if not pb_root.is_dir() and args.skip_if_empty:
         logger.warning("没有台本目录 %s → 跳过台本精修", pb_root)
@@ -540,35 +564,19 @@ def main() -> int:
         for work, pairs in works:
             logger.info("=" * 60)
             logger.info("作品 %s：%d 个轨道", work, len(pairs))
+            work_results = []
             for ja, script in pairs:
                 out_dir = (out_root / work) if work else out_root
-                results.append(refine_track(ja, script, out_dir, client=client,
-                                            min_score=args.min_score, judge_band=args.judge_band))
+                work_results.append(refine_track(ja, script, out_dir, client=client,
+                                                 min_score=args.min_score, judge_band=args.judge_band))
+            # 汇总写进各自作品目录（归档时会一起进作品包），不留在中间目录根部
+            summary_path = (out_root / work / "refine_summary.md") if work else (out_root / "refine_summary.md")
+            n = _write_summary(summary_path, work_results)
+            logger.info("汇总（累计 %d 个轨道）：%s", n, summary_path)
+            results.extend(work_results)
     finally:
         if manager:
             manager.shutdown()
-
-    summary_path = out_root / "refine_summary.md"
-    header = ["# 台本精修汇总", "", f"- 产物目录：`{out_root.relative_to(PROJECT_ROOT)}`", "",
-              "| 文件 | 台本行 | 用上台本 | ASR 行 | 精修后 | 采用台本 | 退回识别 | 专有词疑点 |",
-              "|---|---|---|---|---|---|---|---|"]
-    rows: dict[str, str] = {}
-    # 合并历次运行结果：同一文件以最新一次为准
-    if summary_path.exists():
-        for line in summary_path.read_text(encoding="utf-8").splitlines():
-            if line.startswith("| ") and not line.startswith("| 文件"):
-                name = line.split("|")[1].strip()
-                if name:
-                    rows[name] = line
-    for r in results:
-        if r.get("status") != "done":
-            continue
-        rows[r["file"]] = (f"| {r['file']} | {r['script_lines']} | {r['matched']} | {r['asr_lines']} | {r['entries']} "
-                           f"| {r['certain']} | {r['extra']} | {r['name_issues']} |")
-    out_root.mkdir(parents=True, exist_ok=True)
-    summary_path.write_text("\n".join(header + [rows[k] for k in sorted(rows)]) + "\n", encoding="utf-8")
-    logger.info("=" * 60)
-    logger.info("汇总（累计 %d 个轨道）：%s", len(rows), summary_path)
     return 0
 
 

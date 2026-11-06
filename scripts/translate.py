@@ -2,12 +2,12 @@
 """日中字幕翻译：Sakura-GalTransl（视觉小说/Galgame 翻译特化模型）+ 本地 llama.cpp / LM Studio。
 
 用法：
-    python scripts/translate.py subtitles_ja/xxx.ja.txt          # 翻译单个文件
-    python scripts/translate.py subtitles_ja/                    # 翻译目录下所有 .ja.txt
-    python scripts/translate.py subtitles_ja/ --bilingual        # LRC 中日对照
-    python scripts/translate.py subtitles_ja/ --model sakura-galtransl-7b
-    python scripts/translate.py subtitles_ja/ --limit 20         # 只翻前 20 行（试跑）
-    python scripts/translate.py subtitles_ja/ --force            # 忽略缓存重翻
+    python scripts/translate.py 中间文件/日文字幕/xxx.ja.txt          # 翻译单个文件
+    python scripts/translate.py 中间文件/日文字幕/                    # 翻译目录下所有 .ja.txt
+    python scripts/translate.py 中间文件/日文字幕/ --bilingual        # LRC 中日对照
+    python scripts/translate.py 中间文件/日文字幕/ --model sakura-galtransl-7b
+    python scripts/translate.py 中间文件/日文字幕/ --limit 20         # 只翻前 20 行（试跑）
+    python scripts/translate.py 中间文件/日文字幕/ --force            # 忽略缓存重翻
 
 设计要点：
 - 请求格式遵循 Sakura 官方模板：system + [History] / [Glossary] / [Input]
@@ -569,7 +569,7 @@ class ChatClient:
 
 
 # ============================================================ 字幕读写
-SUBTITLE_SUFFIX_RE = re.compile(r"\.ja(\.refined)?\.txt$")
+SUBTITLE_SUFFIX_RE = re.compile(r"\.(?:ja(?:\.refined)?\.txt|srt|lrc|txt)$", re.I)
 
 
 def norm_work(name: str) -> str:
@@ -620,6 +620,85 @@ def parse_ja_txt(path: Path) -> list[SubLine]:
         h, mi, s = int(m.group(1)), int(m.group(2)), int(m.group(3))
         lines.append(SubLine(index=len(lines) + 1, start_ms=(h * 3600 + mi * 60 + s) * 1000, end_ms=None, text=m.group(4).strip()))
     return lines
+
+
+SRT_TIME_RE = re.compile(r"(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})\s*-->\s*(\d{1,2}):(\d{2}):(\d{2})[,.](\d{1,3})")
+ANY_TS_RE = re.compile(r"^\[?(\d{1,2}):(\d{2})(?::(\d{2}))?(?:[.,](\d{1,3}))?\]?\s*(.*)$")
+
+
+def _ms(h: str, m: str, s: str, frac: str = "0") -> int:
+    ms = int(frac.ljust(3, "0")[:3])
+    return ((int(h) * 60 + int(m)) * 60 + int(s)) * 1000 + ms
+
+
+def parse_srt(path: Path) -> list[SubLine]:
+    """标准 SRT：序号 / 时间轴 / 文本（多行文本用空格合并）。"""
+    text = path.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n")
+    out: list[SubLine] = []
+    for block in re.split(r"\n\s*\n", text):
+        rows = [r.strip("\ufeff").strip() for r in block.splitlines() if r.strip()]
+        if not rows:
+            continue
+        ts = next((r for r in rows if SRT_TIME_RE.search(r)), None)
+        if not ts:
+            continue
+        m = SRT_TIME_RE.search(ts)
+        body = [r for r in rows if r != ts and not r.isdigit()]
+        body_text = " ".join(body).strip()
+        if not body_text:
+            continue
+        out.append(SubLine(index=len(out) + 1,
+                           start_ms=_ms(m.group(1), m.group(2), m.group(3), m.group(4)),
+                           end_ms=_ms(m.group(5), m.group(6), m.group(7), m.group(8)),
+                           text=body_text))
+    return out
+
+
+def parse_lrc(path: Path) -> list[SubLine]:
+    """LRC：[mm:ss.xx]文本；忽略 [ti:]/[by:]/[ar:] 等元数据。结束时间取下一行开始。"""
+    out: list[SubLine] = []
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        line = raw.strip()
+        m = re.match(r"^\[(\d{1,3}):(\d{2})(?:[.:](\d{1,3}))?\](.*)$", line)
+        if not m:
+            continue
+        start = (int(m.group(1)) * 60 + int(m.group(2))) * 1000 + int((m.group(3) or "0").ljust(3, "0")[:3])
+        body = m.group(4).strip()
+        if body:
+            out.append(SubLine(index=len(out) + 1, start_ms=start, end_ms=None, text=body))
+    for i in range(len(out) - 1):
+        out[i].end_ms = out[i + 1].start_ms
+    return out
+
+
+def parse_plain_txt(path: Path) -> list[SubLine]:
+    """带时间戳的纯文本：`[HH:MM:SS] 文本` / `[mm:ss.xx] 文本`；无时间戳则返回空。"""
+    out: list[SubLine] = []
+    for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+        m = ANY_TS_RE.match(raw.strip())
+        if not m or not m.group(5).strip():
+            continue
+        h, mi = m.group(1), m.group(2)
+        if m.group(3) is not None:
+            start = _ms(h, mi, m.group(3), m.group(4) or "0")
+        else:                       # [mm:ss]
+            start = (int(h) * 60 + int(mi)) * 1000 + int((m.group(4) or "0").ljust(3, "0")[:3])
+        out.append(SubLine(index=len(out) + 1, start_ms=start, end_ms=None, text=m.group(5).strip()))
+    return out
+
+
+def parse_subtitle(path: Path) -> list[SubLine]:
+    """按后缀选择解析器：本工具 .ja.txt / .srt / .lrc / 带时间戳 .txt。"""
+    name = path.name.lower()
+    if name.endswith(".ja.txt") or name.endswith(".ja.refined.txt"):
+        return parse_ja_txt(path)
+    if name.endswith(".srt"):
+        return parse_srt(path)
+    if name.endswith(".lrc"):
+        return parse_lrc(path)
+    if name.endswith(".txt"):
+        return parse_plain_txt(path)
+    return []
 
 
 def lrc_timestamp(ms: int, offset_ms: int = 0) -> str:
@@ -1522,11 +1601,14 @@ def translate_file(
 
     stem = subtitle_stem(path)
     output_dir.mkdir(parents=True, exist_ok=True)
-    lines = parse_ja_txt(path)
+    lines = parse_subtitle(path)
     if limit:
         lines = lines[:limit]
     if not lines:
-        logger.warning("%s 没有可翻译的字幕行", path.name)
+        hint = ""
+        if path.suffix.lower() in (".txt", ".srt", ".lrc"):
+            hint = "（需要带时间轴：本工具 .ja.txt / .srt / .lrc / `[HH:MM:SS]` 文本；纯文本无时间轴不支持）"
+        logger.warning("%s 没有可翻译的字幕行%s", path.name, hint)
         return {"file": path.name, "status": "empty"}
 
     cache_path = output_dir / f"{stem}.zh.cache.json"
@@ -1809,7 +1891,7 @@ def is_fully_cached(path: Path, output_dir: Path, force: bool, limit: int | None
         cache = json.loads(cache_path.read_text(encoding="utf-8"))
     except Exception:  # noqa: BLE001
         return False
-    lines = parse_ja_txt(path)
+    lines = parse_subtitle(path)
     if limit:
         lines = lines[:limit]
     return bool(lines) and all(
@@ -1821,15 +1903,15 @@ def is_fully_cached(path: Path, output_dir: Path, force: bool, limit: int | None
 
 def main() -> int:
     p = argparse.ArgumentParser(description="日中字幕翻译（Sakura-GalTransl + llama.cpp / LM Studio）")
-    p.add_argument("inputs", nargs="*", help=".ja.txt 文件或目录（默认 subtitles_ja/）")
+    p.add_argument("inputs", nargs="*", help=".ja.txt 文件或目录（默认 中间文件/日文字幕/）")
     p.add_argument("--config", default=str(PROJECT_ROOT / "config.yaml"))
     p.add_argument("--model", default=None, help="翻译模型注册名（默认 sakura-galtransl-14b）")
-    p.add_argument("--output-dir", default=None, help="输出目录（默认与输入目录相同）")
+    p.add_argument("--output-dir", default=None, help="中文文本输出目录（默认与输入目录相同）")
     p.add_argument("--batch-lines", type=int, default=None)
     p.add_argument("--glossary", default=None, help="术语表文件（每行 日文->中文 #备注）")
-    p.add_argument("--subtitles-dir", default=None, help="日文字幕输入根（默认 config paths.subtitles_dir）")
-    p.add_argument("--output-root", default=None, help="中文文本输出根（默认 config paths.output_dir，按相对路径镜像）")
-    p.add_argument("--lrc-root", default=None, help="LRC 输出根（默认 config paths.lrc_dir，按相对路径镜像）")
+    p.add_argument("--subtitles-dir", default=None, help="日文字幕输入根（默认 config paths.work_dir 下的「日文字幕」）")
+    p.add_argument("--output-root", default=None, help="中文文本输出根（默认 config 中间目录下的「中文字幕」）")
+    p.add_argument("--lrc-root", default=None, help="LRC 输出根（默认 config 中间目录下的「LRC」）")
     p.add_argument("--no-refined", action="store_true",
                    help="忽略台本精修版（<轨道>.ja.refined.txt），只用 ASR 原文")
     p.add_argument("--lrc-flat", action="store_true", help="所有 LRC 平铺到 lrc 根目录（不镜像作品文件夹）")
@@ -1864,14 +1946,20 @@ def main() -> int:
     # 三个目录：日文输入根 / 中文文本根 / LRC 根（都镜像 input 的作品文件夹结构）
     paths_cfg = cfg.get("paths") or {}
 
-    def _resolve(raw: str | None, key: str, default: str) -> Path:
-        p = Path(raw or paths_cfg.get(key) or default).expanduser()
+    import paths_util
+
+    wp = paths_util.work_paths(cfg)
+
+    def _resolve(raw: str | None, default: Path) -> Path:
+        if not raw:
+            return default
+        p = Path(str(raw)).expanduser()
         return p if p.is_absolute() else PROJECT_ROOT / p
 
-    subtitles_root = _resolve(args.subtitles_dir, "subtitles_dir", "subtitles_ja")
-    output_root = _resolve(args.output_root, "output_dir", "output")
-    lrc_root = _resolve(args.lrc_root, "lrc_dir", "lrc_work")
-    flat_out = _resolve(args.output_dir, "output_dir", "output") if args.output_dir else None
+    subtitles_root = _resolve(args.subtitles_dir, wp["ja"])   # 提取输出 = 翻译输入
+    output_root = _resolve(args.output_root, wp["zh"])
+    lrc_root = _resolve(args.lrc_root, wp["lrc"])
+    flat_out = _resolve(args.output_dir, wp["zh"]) if args.output_dir else None
 
     raw_inputs = args.inputs or [str(subtitles_root)]
     # (输入文件, 决定输出目录的相对路径)
@@ -1889,7 +1977,24 @@ def main() -> int:
                     return f.parent.relative_to(path) if f.parent != path else Path(".")
 
             # 台本精修版与 ASR 版放在同一目录：<轨道>.ja.refined.txt 优先
-            asr_files = sorted(f for f in path.rglob("*.ja.txt") if not f.name.endswith(".ja.refined.txt"))
+            asr_files = [f for f in paths_util.iter_subtitles(path)
+                         if lrc_root.resolve() not in f.resolve().parents]   # 别把 LRC 输出目录里的文件当输入
+            if len(asr_files) < len(paths_util.iter_subtitles(path)):
+                logger.warning("已跳过 LRC 输出目录里的字幕文件（避免自己覆盖自己）")
+            # 只保留"真的有带时间轴字幕行"的文件：纯文本/坏文件跳过，避免卡住归档
+            usable = []
+            for f in asr_files:
+                try:
+                    has_lines = bool(parse_subtitle(f))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("跳过硬读失败的字幕：%s（%s）", f.name, exc)
+                    has_lines = False
+                if has_lines:
+                    usable.append(f)
+                else:
+                    logger.warning("跳过（没有带时间轴的字幕行）：%s", f.name)
+            asr_files = usable
+
             refined_files = sorted(path.rglob("*.ja.refined.txt"))
             refined_by_stem = {f.parent / subtitle_stem(f): f for f in refined_files}
 
@@ -1904,6 +2009,10 @@ def main() -> int:
             for rf in refined_by_stem.values():
                 items.append((rf, _rel(rf)))
         elif path.exists():
+            if path.suffix.lower() == ".lrc" and lrc_root.resolve() in path.resolve().parents:
+                logger.error("输入的 .lrc 位于 LRC 输出目录（%s）里，翻译会覆盖原文件；"
+                             "请先把日文字幕放到别处（如 中间文件/日文字幕/<作品>/）", lrc_root)
+                return 2
             # 显式指定文件：同样遵守"精修版优先"，否则会拿 ASR 原文去查缓存
             # （缓存键是精修后的行文本）→ 大面积未命中、把产物写成 ASR 行数并重新翻译。
             if not args.no_refined and path.name.endswith(".ja.txt"):

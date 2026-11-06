@@ -2,14 +2,14 @@
 """台本 × 字幕 对照检查（只出报告，不生成任何内容、不调用模型）。
 
 作用：
-    1) 扫 promptbook/ 下的台本，按"轨道编号"与 subtitles_ja/ 里的日文字幕配对
+    1) 扫 promptbook/ 下的台本，按"轨道编号"与 中间文件/日文字幕/ 里的日文字幕配对
     2) 报告配对结果：哪些配上了、哪些没配上、作品文件夹名是否对得上
     3) 用台本核对字幕：台本行命中率、未命中的台本行、字幕里台本没有的行
     4) 抽取"台本里出现但字幕里缺失"的汉字词，作为人名/专有名词疑点
 
 用法：
     .venv/bin/python scripts/promptbook_check.py
-    .venv/bin/python scripts/promptbook_check.py --promptbook promptbook --subtitles subtitles_ja
+    .venv/bin/python scripts/promptbook_check.py --promptbook promptbook --subtitles 中间文件/日文字幕
     .venv/bin/python scripts/promptbook_check.py --out 对照试验/promptbook_report.md
 """
 from __future__ import annotations
@@ -138,7 +138,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description="台本 × 字幕 对照检查（只出报告）")
     p.add_argument("--config", default="config.yaml", help="配置文件路径")
     p.add_argument("--promptbook", default=None, help="台本根目录（默认 config paths.promptbook_dir）")
-    p.add_argument("--subtitles", default="subtitles_ja", help="日文字幕根目录")
+    p.add_argument("--subtitles", default=None, help="日文字幕根目录（默认 config 中间目录/日文字幕）")
     p.add_argument("--out", default="对照试验/promptbook_report.md", help="报告输出路径")
     p.add_argument("--threshold", type=float, default=0.62, help="台本行命中判定阈值（覆盖度）")
     p.add_argument("--show", type=int, default=8, help="每类样例输出条数")
@@ -157,7 +157,13 @@ def main() -> int:
     except Exception:  # noqa: BLE001
         _paths = {}
     pb_arg = args.promptbook or _paths.get("promptbook_dir") or "promptbook"
-    sub_arg = args.subtitles or _paths.get("subtitles_dir") or "subtitles_ja"
+    try:
+        import paths_util
+
+        _wp = paths_util.work_paths(cfg)
+    except Exception:  # noqa: BLE001
+        _wp = {}
+    sub_arg = args.subtitles or str(_wp.get("ja") or "中间文件/日文字幕")
     pb_root = Path(pb_arg)
     if not pb_root.is_absolute():
         pb_root = PROJECT_ROOT / pb_root

@@ -11,7 +11,7 @@
     拆开的好处是 ASR 只需跑一次，之后换术语表/换翻译模型/调风格都不必重听音频。
     台本精修夹在提取里：有台本时用台本校正日文（时间戳仍来自 ASR），没有台本就跳过。
 
-不带文件参数时：extract/all 只扫 input/（为空立即提示退出，不加载模型）；translate 扫 subtitles_ja/。
+不带文件参数时：extract/all 只扫 input/（为空立即提示退出，不加载模型）；translate 扫 中间文件/日文字幕/。
 
 产物归档（只在出中文字幕的模式 2/3 生效；模式 1 不搬动任何文件）：
     整轮任务结束后一次性把工作区收进 output/<作品>/：
@@ -80,8 +80,8 @@ def build_extract_cmd(args: argparse.Namespace, targets: list[str] | None = None
         cmd += ["--silence-gate-db", str(args.silence_gate_db)]
     if args.split_lines:
         cmd += ["--split-lines", args.split_lines]
-    if args.output_dir:
-        cmd += ["--output-dir", args.output_dir]
+    if args.subtitles_dir:
+        cmd += ["--output-dir", args.subtitles_dir]
     return cmd
 
 
@@ -119,9 +119,9 @@ def build_translate_cmd(args: argparse.Namespace, targets: list[str]) -> list[st
         cmd += ["--style", str(args.style)]
     if getattr(args, "no_style", False):
         cmd.append("--no-style")
-    if args.output_dir:
-        # subtitle.py 的 --output-dir 指"日文字幕目录"，翻译阶段据此定位 ja.txt（中文/LRC 目录仍走 config）
-        cmd += ["--subtitles-dir", args.output_dir]
+    if args.subtitles_dir:
+        # 指定日文字幕目录时，翻译阶段据此定位 ja.txt（中文字幕/LRC 仍按 config 的中间目录）
+        cmd += ["--subtitles-dir", args.subtitles_dir]
     return cmd
 
 
@@ -143,29 +143,36 @@ def load_cfg(config_path: Path | None = None) -> dict:
 
 
 def load_paths(config_path: Path | None = None) -> dict[str, Path]:
-    """读取 config.yaml 的 paths，返回三个根目录的绝对路径。"""
-    cfg = load_cfg(config_path)
-    paths = cfg.get("paths") or {}
+    """读取 config.yaml 的 paths，解析成绝对路径（统一中间目录 + 各子目录）。"""
+    import paths_util
 
-    def _abs(key: str, default: str) -> Path:
-        p = Path(paths.get(key) or default).expanduser()
-        return p if p.is_absolute() else PROJECT_ROOT / p
+    cfg_path = config_path or (PROJECT_ROOT / "config.yaml")
+    cfg: dict = {}
+    try:
+        import yaml
 
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("读取 %s 失败（%s），使用默认目录", cfg_path, exc)
+    wp = paths_util.work_paths(cfg)
     return {
-
-        "input": _abs("input_dir", "input"),
-        "subtitles": _abs("subtitles_dir", "subtitles_ja"),
-        "promptbook": _abs("promptbook_dir", "promptbook"),
-        "output": _abs("output_dir", "output"),
-        "lrc": _abs("lrc_dir", "lrc_work"),
-        "collect": _abs("collect_dir", "LRC成品库"),
+        "input": wp["input"],
+        "work": wp["work"],
+        "subtitles": wp["ja"],       # 提取输出 = 翻译输入
+        "ja": wp["ja"],
+        "zh": wp["zh"],
+        "output": wp["output"],
+        "lrc": wp["lrc"],
+        "promptbook": wp["promptbook"],
+        "collect": wp["collect"],
     }
 
 
 def ensure_workspace(paths: dict[str, Path]) -> None:
     """启动时就把工作区目录建好，让结构一眼可见（成品库等第一次跑完才出现容易让人困惑）。"""
-    for key, label in (("input", "音频"), ("subtitles", "日文字幕"), ("output", "中文"),
-                       ("lrc", "LRC 中转"), ("promptbook", "台本"), ("collect", "LRC 成品库")):
+    for key, label in (("input", "音频"), ("work", "中间目录"), ("subtitles", "日文字幕"),
+                       ("zh", "中文字幕"), ("lrc", "LRC"), ("promptbook", "台本"),
+                       ("collect", "LRC 成品库"), ("output", "作品包")):
         d = paths.get(key)
         if not d:
             continue
@@ -404,7 +411,7 @@ def main() -> int:
                    choices=["all", "extract", "translate"],
                    help="extract=只提取字幕（含台本精修）｜ all=完整运行（提取+精修+翻译+归档）"
                         "｜ translate=制作翻译（已有日文字幕 → 中文 LRC + 归档）")
-    p.add_argument("inputs", nargs="*", help="extract/all 传音频或目录（默认 input/）；translate 传 .ja.txt 或目录（默认 subtitles_ja/）")
+    p.add_argument("inputs", nargs="*", help="extract/all 传音频或目录（默认 input/）；translate 传 .ja.txt 或目录（默认 中间文件/日文字幕/）")
 
     g = p.add_argument_group("提取阶段（anime-whisper）")
     g.add_argument("--asr-model", default=None, help="anime-whisper / kotoba-whisper-v2.2 / whisper-ja-1.5b")
@@ -435,8 +442,8 @@ def main() -> int:
     c = p.add_argument_group("通用")
     c.add_argument("--config", default=str(PROJECT_ROOT / "config.yaml"), help="配置文件路径")
     c.add_argument("--force", action="store_true", help="两个阶段都强制重跑")
-    c.add_argument("--output-dir", default=None,
-                   help="日文字幕目录（默认 config paths.subtitles_dir）；中文文本/LRC 目录见 config paths")
+    c.add_argument("--subtitles-dir", default=None,
+                   help="日文字幕目录（默认 config 中间目录/日文字幕）；中文字幕/LRC 见 config paths")
     c.add_argument("--lrc-flat", action="store_true", help="所有 LRC 平铺到 lrc 根目录")
     c.add_argument("--track", default=None, help="只处理指定轨道号（refine / translate 都支持，如 05）")
     c.add_argument("--no-model", action="store_true",
@@ -467,8 +474,8 @@ def main() -> int:
 
     logger.info("运行方式：%s", {"extract": "只提取字幕（含台本精修）", "all": "完整运行（提取+精修+翻译+归档）",
                                 "translate": "制作翻译（+归档）"}[mode])
-    logger.info("日文字幕目录：%s", paths["subtitles"])
-    logger.info("中文文本目录：%s ｜ LRC 中转目录：%s", paths["output"], paths["lrc"])
+    logger.info("中间目录：%s（日文字幕 / 中文字幕 / LRC）", paths["work"])
+    logger.info("日文字幕：%s ｜ 中文字幕：%s", paths["subtitles"], paths["zh"])
 
     if mode in ("all", "extract"):
         targets = args.inputs or default_audio_inputs(args.config)
@@ -492,7 +499,9 @@ def main() -> int:
         # all：翻译刚提取出来的日文字幕目录（不是用户给的 input 路径）
         # translate：翻译命令行给的 .ja.txt/目录，默认扫日文字幕目录
         if mode == "all":
-            targets = [str(Path(args.output_dir).expanduser() if args.output_dir and Path(args.output_dir).is_absolute() else (PROJECT_ROOT / args.output_dir if args.output_dir else paths["subtitles"]))]
+            targets = [str(Path(args.subtitles_dir).expanduser()
+                           if args.subtitles_dir and Path(args.subtitles_dir).is_absolute()
+                           else (PROJECT_ROOT / args.subtitles_dir if args.subtitles_dir else paths["subtitles"]))]
         elif args.track and not args.inputs:
             targets = [str(f) for f in sorted(paths["subtitles"].rglob("*.ja.txt"))
                        if not f.name.endswith(".ja.refined.txt") and track_number(f.name) == args.track.zfill(2)]
