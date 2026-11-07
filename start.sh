@@ -26,10 +26,14 @@ export PYTHONDONTWRITEBYTECODE=1       # 不生成 __pycache__ 垃圾
 PYTHON="$PROJECT_ROOT/.venv/bin/python"
 
 # ---- 1. 准备 uv（放在 .tools/ 内）----
-case "$(uname -m)" in
-  arm64) UV_TARGET="aarch64-apple-darwin" ;;
-  x86_64) UV_TARGET="x86_64-apple-darwin" ;;
-  *) echo "不支持的架构：$(uname -m)"; exit 1 ;;
+OS_NAME="$(uname -s)"
+ARCH_NAME="$(uname -m)"
+case "${OS_NAME}-${ARCH_NAME}" in
+  Darwin-arm64) UV_TARGET="aarch64-apple-darwin" ;;
+  Darwin-x86_64) UV_TARGET="x86_64-apple-darwin" ;;
+  Linux-x86_64) UV_TARGET="x86_64-unknown-linux-gnu" ;;
+  Linux-aarch64|Linux-arm64) UV_TARGET="aarch64-unknown-linux-gnu" ;;
+  *) echo "不支持的平台：${OS_NAME} ${ARCH_NAME}（也可以手动创建 .venv 后运行 python gui.py）"; exit 1 ;;
 esac
 UV_BIN="$PROJECT_ROOT/.tools/uv-${UV_TARGET}/uv"
 
@@ -59,7 +63,11 @@ fi
 
 # ---- 4.5 本地推理依赖检查（用云端 API 可忽略）----
 if ! command -v llama-server >/dev/null 2>&1; then
-  echo "提示：未找到 llama-server（本地模型需要：brew install llama.cpp；用云端 API 可忽略）"
+  if [ "$OS_NAME" = "Darwin" ]; then
+    echo "提示：未找到 llama-server（本地模型需要：brew install llama.cpp；用云端 API 可忽略）"
+  else
+    echo "提示：未找到 llama-server（本地模型需要安装 llama.cpp；用云端 API 可忽略）"
+  fi
 fi
 
 # ---- 5. 三种运行方式（统一入口 scripts/subtitle.py）----

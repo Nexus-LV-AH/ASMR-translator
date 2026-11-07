@@ -511,7 +511,11 @@ class ServerManager:
     def shutdown(self):
         if self.proc and self.proc.poll() is None:
             logger.info("关闭 llama-server（pid=%s）", self.proc.pid)
-            self.proc.send_signal(signal.SIGINT)
+            if os.name == "nt":
+                # Windows 上 send_signal(SIGINT) 对子进程不可用；terminate 更可靠
+                self.proc.terminate()
+            else:
+                self.proc.send_signal(signal.SIGINT)
             try:
                 self.proc.wait(timeout=15)
             except subprocess.TimeoutExpired:

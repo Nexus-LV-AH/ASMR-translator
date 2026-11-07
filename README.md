@@ -4,6 +4,10 @@
 anime-whisper 提取日文、官方台本可选精修、SakuraLLM（本地）或 DeepSeek（云端 API）翻译，
 最后按作品整理成可以直接丢进播放器 / 上传到 asmr.one 的作品包。
 
+> **图形界面（新增）**：可视化窗口、双击启动器、本地模型/API 设置、打包和测试全部集中在
+> [`gui_app/`](gui_app/README.md)，和原来的 CLI 用法完全分开；下面的文档是原来的 CLI/项目说明。
+> 普通用户直接看 [`gui_app/README.md`](gui_app/README.md) 或发布包里的 `使用说明.txt`。
+
 ## 先改 config.yaml（三处）
 
 打开 `config.yaml`，**文件最上面**就是这三个字段（都带 ★）：

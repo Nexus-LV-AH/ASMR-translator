@@ -11,13 +11,14 @@
 translate 扫描 subtitles_ja/（不依赖 input/，已有日文字幕时用它）。
 常用附加参数：--limit 20 先试翻 20 行 ｜ --bilingual 中日对照 ｜ --force 重跑
 """
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 TARGET = ROOT / "scripts" / "subtitle.py"
-VENV_PYTHON = ROOT / ".venv" / "bin" / "python"
+VENV_PYTHON = (ROOT / ".venv" / "Scripts" / "python.exe") if os.name == "nt" else (ROOT / ".venv" / "bin" / "python")
 
 if not TARGET.exists():
     sys.exit(f"找不到核心脚本 {TARGET}（请确认项目结构完整）")

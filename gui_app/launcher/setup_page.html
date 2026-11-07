@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="dark">
+<title>音声字幕工房 · 首次启动</title>
+<style>
+  :root{
+    --bg:#0b0f14;--panel:#121a24;--panel2:#172230;--border:#243346;--text:#e7eef8;
+    --muted:#8fa2b8;--faint:#61748a;--accent:#5ad1bb;--danger:#ff7a7a;--warn:#f0c05a;
+    --mono:"SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0;min-height:100vh;font-family:var(--sans);color:var(--text);font-size:14px;line-height:1.6;
+    background:radial-gradient(1000px 500px at 10% -10%,rgba(90,209,187,.12),transparent 60%),
+               radial-gradient(900px 500px at 100% 0%,rgba(110,168,254,.10),transparent 55%),var(--bg);
+    display:flex;justify-content:center;padding:44px 22px;
+  }
+  .wrap{width:min(860px,100%);}
+  .brand{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+  .logo{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;font-size:22px;font-weight:700;
+    color:#04120f;background:linear-gradient(145deg,#5ad1bb,#9df1df 60%,#6ea8fe);
+    box-shadow:0 10px 30px rgba(90,209,187,.22)}
+  h1{font-size:18px;margin:0;font-weight:650}
+  .sub{color:var(--muted);font-size:12.5px;margin:0}
+  .card{background:linear-gradient(180deg,rgba(255,255,255,.02),transparent 36%),var(--panel);
+    border:1px solid #1d2a3a;border-radius:16px;padding:24px;box-shadow:0 18px 40px rgba(0,0,0,.22)}
+  h2{font-size:16px;margin:0 0 8px}
+  p{margin:0 0 10px}
+  .muted{color:var(--muted)}
+  .small{font-size:12px}
+  .note{border:1px solid rgba(90,209,187,.28);background:rgba(90,209,187,.07);border-radius:11px;
+    padding:10px 12px;color:#bdeee4;font-size:12.5px;margin:14px 0}
+  .note.warn{border-color:rgba(240,192,90,.35);background:rgba(240,192,90,.08);color:#f6d58c}
+  .note.error{border-color:rgba(255,122,122,.4);background:rgba(255,122,122,.08);color:#ffb3b3}
+  .row{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .between{justify-content:space-between}
+  .check{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:13px}
+  .check input{accent-color:var(--accent)}
+  button{font-family:inherit;font-size:13.5px;border-radius:10px;border:1px solid var(--border);
+    background:var(--panel2);color:var(--text);padding:10px 16px;cursor:pointer;transition:.15s}
+  button:hover:not(:disabled){border-color:#3a5070;background:#1b2838}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  button.primary{background:linear-gradient(140deg,#5ad1bb,#3fb9a5 70%);color:#04120f;border-color:transparent;font-weight:650}
+  button.link{background:none;border:none;padding:0;color:var(--accent);text-decoration:underline;cursor:pointer}
+  .stage{margin:16px 0 8px;font-weight:650;font-size:13.5px}
+  .spinner{width:14px;height:14px;border-radius:50%;border:2px solid rgba(255,255,255,.15);
+    border-top-color:var(--accent);display:inline-block;vertical-align:-2px;margin-right:8px;animation:spin 1s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .bar{height:8px;background:#0d1520;border:1px solid #1d2a3a;border-radius:999px;overflow:hidden;margin:10px 0}
+  .bar-fill{height:100%;width:38%;background:linear-gradient(90deg,transparent,var(--accent),transparent);
+    animation:sweep 1.3s linear infinite}
+  @keyframes sweep{from{transform:translateX(-120%)}to{transform:translateX(320%)}}
+  pre.log{margin:12px 0 0;padding:12px;border-radius:11px;background:#081018;border:1px solid #1d2a3a;
+    font-family:var(--mono);font-size:11.5px;line-height:1.65;white-space:pre-wrap;word-break:break-word;
+    max-height:320px;overflow:auto;color:#c8d8ea}
+  .hidden{display:none!important}
+  .actions{margin-top:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  a{color:var(--accent)}
+  footer{margin-top:16px;color:var(--faint);font-size:11.5px;text-align:center}
+  @media (max-width:640px){body{padding:22px 12px}.card{padding:18px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="logo">音</div>
+    <div>
+      <h1>音声字幕工房</h1>
+      <p class="sub">首次启动 · 安装运行环境</p>
+    </div>
+  </div>
+  <div class="card">
+    <h2>需要先安装一次运行环境</h2>
+    <p class="muted">本地语音识别依赖 Python 3.12、PyTorch、Transformers、faster-whisper 等，约 <b>2–4GB</b>，视网络需要 <b>10–30 分钟</b>。只需安装一次，以后双击图标即可。</p>
+    <div class="note">
+      安装完成后会打开主界面；翻译模型（DeepSeek API Key 或本地 .gguf）在界面里配置，不需要编辑文件。
+    </div>
+    <div class="row between" style="margin-top:14px">
+      <label class="check"><input id="mirror" type="checkbox" checked> 使用国内 PyPI 镜像（国内网络推荐）</label>
+      <span id="stateText" class="muted small">等待开始</span>
+    </div>
+    <div id="progressArea" class="hidden">
+      <div class="stage"><span id="spinner" class="spinner"></span><span id="stage">准备开始</span></div>
+      <div class="bar"><div class="bar-fill"></div></div>
+    </div>
+    <div id="errorBox" class="note error hidden"></div>
+    <div id="doneBox" class="note hidden"></div>
+    <div class="actions">
+      <button id="startBtn" class="primary">开始安装</button>
+      <button id="retryBtn" class="hidden">重试</button>
+      <button id="openGuiBtn" class="hidden">打开界面</button>
+      <span id="hint" class="muted small">安装期间请不要关闭这个页面</span>
+    </div>
+    <pre id="log" class="log hidden"></pre>
+  </div>
+  <footer>音频只在本机处理；安装使用你本机的网络。</footer>
+</div>
+<script>
+"use strict";
+const TOKEN = new URLSearchParams(location.search).get("token") || "";
+const $ = (id) => document.getElementById(id);
+let redirected = false;
+let pollTimer = null;
+let lastState = "";
+
+async function api(path, opts = {}) {
+  const headers = { "X-GUI-Token": TOKEN, ...(opts.headers || {}) };
+  if (opts.json !== undefined) {
+    headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(opts.json);
+    opts.method = opts.method || "POST";
+  }
+  const res = await fetch(path, { ...opts, headers });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+  return data;
+}
+
+function render(s) {
+  lastState = s.state;
+  $("stage").textContent = s.stage || "准备开始";
+  $("stateText").textContent = s.state === "running" ? "安装中…" : s.state === "done" ? "已完成"
+    : s.state === "error" ? "安装失败" : "等待开始";
+  if (s.state === "running" || s.state === "done") {
+    $("progressArea").classList.remove("hidden");
+    $("spinner").style.display = s.state === "running" ? "inline-block" : "none";
+  } else {
+    $("progressArea").classList.add("hidden");
+  }
+  const log = $("log");
+  if (s.logs && s.logs.length) {
+    log.classList.remove("hidden");
+    log.textContent = s.logs.join("\n");
+    log.scrollTop = log.scrollHeight;
+  }
+  const err = $("errorBox");
+  if (s.error) {
+    err.textContent = s.error + "\n查看上面的日志；网络/磁盘问题处理后可以重试。";
+    err.classList.remove("hidden");
+  } else err.classList.add("hidden");
+  const done = $("doneBox");
+  if (s.state === "done") {
+    done.textContent = "运行环境安装完成，正在打开界面…如果没有自动跳转，点「打开界面」。";
+    done.classList.remove("hidden");
+    $("startBtn").classList.add("hidden");
+    $("retryBtn").classList.add("hidden");
+    const open = $("openGuiBtn");
+    open.classList.remove("hidden");
+    if (s.gui_url) open.onclick = () => { location.href = s.gui_url; };
+    if (s.gui_url && !redirected) {
+      redirected = true;
+      setTimeout(() => { location.replace(s.gui_url); }, 1200);
+    }
+    $("hint").textContent = "以后双击应用图标即可打开";
+  } else if (s.state === "running") {
+    $("startBtn").disabled = true;
+    $("startBtn").textContent = "安装中…";
+    $("retryBtn").classList.add("hidden");
+    $("hint").textContent = "安装期间请不要关闭这个页面（关闭页面安装也会继续）";
+  } else if (s.state === "error") {
+    $("startBtn").classList.add("hidden");
+    $("retryBtn").classList.remove("hidden");
+    $("retryBtn").disabled = false;
+    $("hint").textContent = "可以检查网络/磁盘后重试";
+  }
+}
+
+async function poll() {
+  try {
+    const s = await api("/api/status");
+    render(s);
+  } catch (e) {
+    $("stateText").textContent = "无法连接安装服务";
+    $("errorBox").textContent = e.message;
+    $("errorBox").classList.remove("hidden");
+  } finally {
+    if (!redirected) pollTimer = setTimeout(poll, 1200);
+  }
+}
+
+async function start() {
+  $("startBtn").disabled = true;
+  $("startBtn").textContent = "正在开始…";
+  $("retryBtn").disabled = true;
+  $("errorBox").classList.add("hidden");
+  try {
+    const mirror = $("mirror").checked ? "tuna" : "";
+    const s = await api("/api/start", { json: { mirror } });
+    $("log").classList.remove("hidden");
+    $("log").textContent = "已开始，准备安装…";
+    render(s.state ? s.state : s);
+  } catch (e) {
+    $("startBtn").disabled = false;
+    $("startBtn").textContent = "开始安装";
+    $("retryBtn").disabled = false;
+    $("errorBox").textContent = e.message;
+    $("errorBox").classList.remove("hidden");
+  }
+  poll();
+}
+
+$("startBtn").addEventListener("click", start);
+$("retryBtn").addEventListener("click", start);
+if (!TOKEN) {
+  $("stateText").textContent = "缺少 token，请从启动器打开的地址进入";
+}
+window.addEventListener("beforeunload", () => clearTimeout(pollTimer));
+poll();
+</script>
+</body>
+</html>

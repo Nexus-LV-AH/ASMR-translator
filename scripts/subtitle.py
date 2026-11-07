@@ -187,6 +187,24 @@ def _cfg_args(args: argparse.Namespace) -> list[str]:
     return ["--config", str(args.config)] if getattr(args, "config", None) else []
 
 
+def _work_name_from_inputs(inputs: list[str], input_root: Path) -> str | None:
+    """从显式输入路径解析出唯一作品名；多个作品/外部路径返回 None。"""
+    works: set[str] = set()
+    try:
+        root = input_root.resolve()
+    except OSError:
+        return None
+    for raw in inputs:
+        p = Path(raw).expanduser()
+        try:
+            rel = p.resolve().relative_to(root)
+        except (OSError, ValueError):
+            continue
+        if rel.parts:
+            works.add(rel.parts[0])
+    return next(iter(works)) if len(works) == 1 else None
+
+
 def run_refine(args: argparse.Namespace, paths: dict[str, Path], *, skip_if_empty: bool) -> int:
     """台本精修阶段：台本目录不存在时直接跳过（不再报错中断整条流水线）。"""
     pb = paths["promptbook"]
@@ -201,7 +219,11 @@ def run_refine(args: argparse.Namespace, paths: dict[str, Path], *, skip_if_empt
     if getattr(args, "mt_model", None):
         cmd += ["--model", str(args.mt_model)]
     if args.inputs:
-        cmd += ["--work", args.inputs[0]]
+        # 以前把完整路径传给 --work，refine 用目录名比对会匹配不到而静默跳过；
+        # 这里只传"相对 input/ 的第一个目录名"（唯一作品时）。
+        work = _work_name_from_inputs(args.inputs, paths["input"])
+        if work:
+            cmd += ["--work", work]
     if args.track:
         cmd += ["--track", args.track]
     if args.no_model:
